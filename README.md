@@ -4,6 +4,22 @@ Autonomous homework-builder for the NETS LMS. You give it a textbook PDF and a l
 
 ---
 
+## ⚠ Currently-dead source files
+
+These files are checked in but **not imported by the live build path**. Nothing in `drive.py` / `agent_runner.py` reads them right now. They survive because the capabilities they represent might come back later — deleting them would mean rewriting from scratch if those features return.
+
+| File | What it was for | Why it's dead now |
+|---|---|---|
+| `autopilot/ingest.py` | Batch-ingesting textbook PDFs into the autopilot DB (pre-cataloging titles + sections) | Current flow has Claude read PDFs directly via the `Read` tool; no pre-cataloging needed |
+| `autopilot/toc.py` | Parsing textbook TOCs out of PDFs | Only imported by `ingest.py` (which is dead) |
+| `autopilot/textwork.py` | Title normalization + OCR recovery utilities | Only imported by `toc.py` (which is dead) |
+| `autopilot/link.py` | Linking matching uz ↔ ru theme rows across editions | No live caller; the autopilot doesn't push bilingual variants today |
+| `autopilot/validate.py` | Parsing the validator agent's `VERDICT:` markdown | Designed for the multi-agent fan-out architecture that was abandoned in favor of one-Claude-per-build |
+
+**None of these files affect a live build.** If you ever want batch ingestion, bilingual linking, or a return to multi-agent validation, these are starting points rather than scratch.
+
+---
+
 ## What it does, in plain English
 
 You give the autopilot three things:
