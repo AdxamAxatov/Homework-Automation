@@ -1,0 +1,31 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Editor scratch
+*.swp
+.idea/
+.vscode/
+
+# Local artifacts (textbook-derived content; per-machine state)
+textbooks/
+builds/
+db/
+extracted/
+
+# SQLite (in case anyone moves the DB)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Internal notes (kept local)
+Instruction.txt
+
+# Backup zips
+*.zip
