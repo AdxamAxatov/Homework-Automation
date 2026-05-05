@@ -3,7 +3,7 @@ worker must run, plus the prompt filename to load for each phase.
 
 Mirrors ``CONTRACTS.md::PHASE_PIPELINE``. If you change CONTRACTS.md you must
 update this file (and vice versa). The ``selftest`` function below verifies that
-every prompt file referenced here exists in ``repo/server/prompts/<subject>/``.
+every prompt file referenced here exists in ``Automation/prompts/<subject>/``.
 
 Why this is hard-coded rather than parsed from each subject's flow.md:
 flow.md is human prose with a markdown table that is too easy to break with
@@ -16,7 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PROMPTS_ROOT = REPO_ROOT / "server" / "prompts"
+AUTOMATION_ROOT = Path(__file__).resolve().parents[1]
+PROMPTS_ROOT = AUTOMATION_ROOT / "prompts"
 
 
 @dataclass(frozen=True)

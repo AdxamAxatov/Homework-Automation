@@ -15,7 +15,7 @@ Find and read the corresponding textbook pages. Extract:
 
 ## Step 2: Classify difficulty
 
-Read `06-prompts/math-algebra/classify.md` and apply it to the extracted content.
+Read `classify.md` and apply it to the extracted content.
 
 Two checks:
 1. Is the topic inherently complex? (requires chaining prior concepts, abstract, multi-step by nature) → **HARD**
@@ -26,8 +26,8 @@ Output: EASY or HARD + one sentence why.
 
 ## Step 3: Load the right prompt
 
-- If EASY → read `06-prompts/math-algebra/preview-easy.md`
-- If HARD → read `06-prompts/math-algebra/preview-hard.md`
+- If EASY → read `preview-easy.md`
+- If HARD → read `preview-hard.md`
 
 ## Step 4: Build
 

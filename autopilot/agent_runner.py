@@ -1,10 +1,17 @@
 """Subprocess driver for the autonomous build.
 
 drive.py builds the BuildContext + an inspectable phase plan, then hands off to
-``run_plan`` here. We compose ONE master prompt that walks the spawned Claude
-session through the per-subject prompts under ``server/prompts/<subject>/``,
-have it write ``content.json`` to the build dir, then POST + PUT that JSON to
-the running NETS server.
+``run_plan`` here. We compose ONE thin master prompt that routes the spawned
+Claude session to the per-subject prompts under ``Automation/prompts/<subject>/``
+in their correct order, have it write ``content.json`` to the build dir, then
+POST + PUT that JSON to the running NETS server.
+
+The master prompt is intentionally a thin router: it surfaces job parameters
++ absolute paths to the per-subject prompts + success/failure markers. It
+does NOT prescribe extraction format, content rules, classify output schema,
+or any per-subject guidance — those live in the per-subject prompts and
+CONTRACTS.md. Editorialising in the master prompt was the cause of the
+"runner-prompt corruption" symptom; do not re-introduce it.
 
 The Claude session is invoked headless via:
 
@@ -254,52 +261,73 @@ def run_plan(
 
 
 def _build_master_prompt(ctx: "BuildContext") -> str:
-    """Assemble the one big prompt the spawned Claude executes against."""
-    from .drive import AGENTS_ROOT, CONTRACTS_PATH, PROMPTS_ROOT  # avoid circular at module load
+    """Assemble the orchestration prompt the spawned Claude executes against.
+
+    This is a thin router. It surfaces the job parameters, lists the per-subject
+    prompts in the order Claude must read them, and defines the success/failure
+    markers drive.py greps for. It does NOT prescribe extraction format,
+    content rules, classify output schema, or assembly schema — those live in
+    the per-subject prompts (instruction.md, flow.md, classify.md, phase
+    prompts) and CONTRACTS.md respectively.
+    """
+    from .drive import CONTRACTS_PATH, PROMPTS_ROOT  # avoid circular at module load
 
     subject_dir = PROMPTS_ROOT / ctx.subject_id
     flow_path = subject_dir / "flow.md"
-    classify_path = subject_dir / "classify.md"
+    classify_prompt = subject_dir / "classify.md"
     needs_classify = ctx.subject_id in pipelines.NEEDS_CLASSIFY
+    classify_output = ctx.build_dir / "classify.md"
 
     if needs_classify:
-        easy_pipeline = pipelines.PIPELINES[(ctx.subject_id, "easy")]
+        easy_pipeline = pipelines.PIPELINES.get((ctx.subject_id, "easy"))
         hard_pipeline = pipelines.PIPELINES[(ctx.subject_id, "hard")]
-        easy_listing = _format_phase_listing(easy_pipeline, subject_dir, ctx.build_dir)
-        hard_listing = _format_phase_listing(hard_pipeline, subject_dir, ctx.build_dir)
-        mode_block = (
-            f"This subject is in `pipelines.NEEDS_CLASSIFY`. You decide easy vs hard.\n"
-            f"\n"
-            f"1. Read the classification rubric: `{classify_path}`.\n"
-            f"2. Apply it to your extraction (step 2).\n"
-            f"3. Write your verdict to `{ctx.build_dir / 'classify.md'}` in this exact format:\n"
-            f"\n"
-            f"       VERDICT: <EASY|HARD>\n"
-            f"       Reason: one sentence\n"
-            f"\n"
-            f"4. Then run the matching pipeline below.\n"
-            f"\n"
-            f"### EASY pipeline ({len(easy_pipeline)} phases)\n"
-            f"{easy_listing}\n"
-            f"\n"
-            f"### HARD pipeline ({len(hard_pipeline)} phases)\n"
-            f"{hard_listing}\n"
+        classify_block = (
+            f"3. classify.md — `{classify_prompt}`\n"
+            f"   Apply this rubric to the lesson. Follow the output schema "
+            f"defined inside classify.md exactly. Write the result to "
+            f"`{classify_output}`. The verdict (easy or hard) selects which "
+            f"pipeline you run in step 4."
         )
+        if easy_pipeline:
+            pipeline_block = (
+                f"4. Phase prompts — read each in order, follow each prompt exactly,\n"
+                f"   write each phase's output as markdown at the path shown. Phase\n"
+                f"   markdowns are working scratch; they help you assemble content.json\n"
+                f"   in step 5.\n"
+                f"\n"
+                f"   ### EASY pipeline ({len(easy_pipeline)} phases) — use if classify verdict is EASY\n"
+                f"{_format_phase_listing(easy_pipeline, subject_dir, ctx.build_dir)}\n"
+                f"\n"
+                f"   ### HARD pipeline ({len(hard_pipeline)} phases) — use if classify verdict is HARD\n"
+                f"{_format_phase_listing(hard_pipeline, subject_dir, ctx.build_dir)}"
+            )
+        else:
+            pipeline_block = (
+                f"4. Phase prompts — read each in order, follow each prompt exactly,\n"
+                f"   write each phase's output as markdown at the path shown. Phase\n"
+                f"   markdowns are working scratch; they help you assemble content.json\n"
+                f"   in step 5.\n"
+                f"\n"
+                f"   ### HARD pipeline ({len(hard_pipeline)} phases)\n"
+                f"{_format_phase_listing(hard_pipeline, subject_dir, ctx.build_dir)}"
+            )
     else:
         hard_pipeline = pipelines.PIPELINES[(ctx.subject_id, "hard")]
-        hard_listing = _format_phase_listing(hard_pipeline, subject_dir, ctx.build_dir)
-        mode_block = (
-            f"Mode is HARD by rule — this subject is in `pipelines.ALWAYS_HARD`,\n"
-            f"so classify.md is not consulted. Write `{ctx.build_dir / 'classify.md'}` with:\n"
+        classify_block = (
+            f"3. No classify step — this subject is always-HARD by rule "
+            f"(`pipelines.ALWAYS_HARD`). Skip directly to the HARD pipeline below."
+        )
+        pipeline_block = (
+            f"4. Phase prompts — read each in order, follow each prompt exactly,\n"
+            f"   write each phase's output as markdown at the path shown. Phase\n"
+            f"   markdowns are working scratch; they help you assemble content.json\n"
+            f"   in step 5.\n"
             f"\n"
-            f"    VERDICT: HARD\n"
-            f"    Reason: subject is always-hard per pipelines.ALWAYS_HARD\n"
-            f"\n"
-            f"### HARD pipeline ({len(hard_pipeline)} phases)\n"
-            f"{hard_listing}\n"
+            f"   ### HARD pipeline ({len(hard_pipeline)} phases)\n"
+            f"{_format_phase_listing(hard_pipeline, subject_dir, ctx.build_dir)}"
         )
 
-    label_line = f"- Textbook label: {ctx.textbook_label}\n" if ctx.textbook_label else ""
+    label_line = f"- textbook_label: {ctx.textbook_label}\n" if ctx.textbook_label else ""
 
     return f"""# NETS Autonomous Homework Build
 
@@ -310,108 +338,52 @@ without asking for input — there is no interactive operator.
 
 ## Job parameters
 
-- Build directory (your output home, ABSOLUTE path): `{ctx.build_dir}`
-- Subject: `{ctx.subject_id}`
-- Grade: {ctx.grade}
-- Language: `{ctx.language}`
-- Theme/lesson: {ctx.lesson_ref!r}
-- Textbook PDF (ABSOLUTE path): `{ctx.pdf_path}`
-{label_line}- Local autopilot homework id (for run.log; NOT the NETS server id): `{ctx.homework_id}`
+- build_dir: `{ctx.build_dir}`
+- subject: `{ctx.subject_id}`
+- grade: {ctx.grade}
+- language: `{ctx.language}`
+- lesson_ref: {ctx.lesson_ref!r}
+- pdf_path: `{ctx.pdf_path}`
+{label_line}- homework_id (autopilot-local, NOT the NETS server id): `{ctx.homework_id}`
 
-## Step 1 — Read the per-subject playbook
+## Prompts to follow
 
-These three files are authoritative. Read them in order before doing anything else:
+Read these in order. Follow each prompt exactly as written. Do NOT add,
+paraphrase, override, or inject anything not specified by the prompts
+themselves. The per-subject prompts + CONTRACTS.md are the complete
+specification of the build — this file only routes you to them.
 
-1. `{ctx.instruction_path}` — the per-subject builder playbook
-2. `{flow_path}` — the phase order + format expectations
-3. `{CONTRACTS_PATH}` — the JSON schema your final output MUST conform to (section 1)
+1. instruction.md — `{ctx.instruction_path}`
+   The per-subject builder playbook. This is the source of truth for the
+   entire build, including how to extract from the textbook PDF and what
+   `extraction.md` must contain.
 
-## Step 2 — Extract from the textbook
+2. flow.md — `{flow_path}`
+   Phase order + format expectations.
 
-Open the PDF at `{ctx.pdf_path}` (use the Read tool — `pages: "1-20"` etc. for
-large PDFs). Locate the lesson {ctx.lesson_ref!r}. Pull out:
+{classify_block}
 
-- Topic name + key terms with definitions
-- Named processes / mechanisms / experiments
-- Diagrams, classification trees, comparison tables
-- Quotes or facts already in the textbook (so the build can re-use them)
+{pipeline_block}
 
-Write your extraction notes to `{ctx.build_dir / 'extraction.md'}`. This is
-your working scratchpad; it is NOT pushed to the server.
+5. CONTRACTS.md — `{CONTRACTS_PATH}`
+   The final JSON schema. After every phase markdown is written, assemble all
+   phase outputs into ONE JSON object that conforms exactly to CONTRACTS.md
+   section 1, and write it to:
 
-## Step 3 — Mode resolution
+       {ctx.build_dir / 'content.json'}
 
-{mode_block}
-For each phase entry above, the "prompt" path is the rubric you follow and the
-"output" path is where your phase markdown goes.
+## Markers (drive.py greps for these — emit exactly as shown)
 
-## Step 4 — Build each phase
-
-Walk the chosen pipeline in order. For each phase:
-
-1. Read the phase prompt file. Follow its rubric exactly.
-2. Generate the phase content for THIS lesson, grounded in your extraction.
-3. Write the phase output to its `output` path as markdown. Phase markdowns
-   are working scratch — they help you assemble the final JSON in step 5 and
-   aid debugging. They are NOT pushed to the NETS server.
-
-If a phase has `can_skip` semantics (consolidation when only one concept is
-taught), you may write a one-line `SKIP: <reason>` file at its output path
-instead of full content. Empty Phase-3 games stay as empty arrays in the
-final JSON — do NOT inject placeholder content.
-
-## Step 5 — Assemble content.json (THE FINAL DELIVERABLE)
-
-Assemble all phase outputs into ONE JSON object that conforms exactly to
-`{CONTRACTS_PATH}` section 1. Write it to:
-
-    {ctx.build_dir / 'content.json'}
-
-Required top-level keys per CONTRACTS.md §1:
-
-- `meta`: `{{title, subject_display, section, cefr_level (English only), mode}}`
-  — set `meta.mode` to your classify verdict, lower-case (`"easy"` or `"hard"`)
-- `panels[]`: 4 (easy) or 6 (hard) preview panels with `pages.blocks`
-- `flashcards[]`: term + def, optional cluster + media
-- `memory_sprint[]`: KO / TF / YNNG items with `prompt`, `tags`, `explain`,
-  `options`, `correct`
-- `gb_adaptive_quiz[]`, `gb_why_chain[]`, `gb_memory_match[]`,
-  `gb_puzzle_lock[]`, `gb_mystery_box[]`, `gb_ttt[]`: phase-3 game arrays.
-  Use **empty arrays** for any game you don't author — never inject placeholder
-  content. Phase 3 games are ALL optional.
-- `real_life`: scenario object (HARD only — omit or set to `null` for EASY)
-- `consolidation`: object (omit / null when can-skip applies)
-- `boss_questions[]`: HARD only
-
-## Hard rules (carry through every phase)
-
-- Content language matches `{ctx.language}`. For uz/ru use formal address
-  ("Siz" — never "sen").
-- Every panel grounds in the textbook PDF. Do not invent facts, formulas,
-  organisms, dates, or processes that aren't in the source.
-- Modern professional contexts only: medical lab, agritech IoT, pharma R&D,
-  environmental monitoring, clinical diagnostics, fintech, etc. Never
-  bazaar / village / shopkeeper framing.
-- All Phase-3 games are optional. Empty arrays are correct when the game
-  wouldn't add learning value. The runtime auto-skips empty games.
-- Notebook capture (`capture: true` on adaptive_quiz items) is opt-in
-  per item — do not blanket-enable.
-
-## Step 6 — Done
-
-When `{ctx.build_dir / 'content.json'}` is written and parses as valid JSON,
-print this exact line as the very last line of your output:
+When `content.json` is written and parses as valid JSON, print this as the
+very last line of your output (mode in lower-case, matching your classify
+verdict — `easy` or `hard`):
 
     {SUCCESS_MARKER} {ctx.build_dir / 'content.json'} mode=<easy|hard>
-
-That is the signal drive.py watches for to push the JSON to the NETS server.
 
 If you cannot complete the build (textbook missing the lesson, irrecoverable
 error), instead print this exact line and exit:
 
     {FAILURE_MARKER} <one-line reason>
-
-drive.py will mark the homework as error and skip the API push.
 """
 
 
@@ -434,11 +406,33 @@ def _format_phase_listing(
 
 
 def _infer_mode_from_classify_md(ctx: "BuildContext") -> str | None:
-    """Read build_dir/classify.md as a fallback if meta.mode is missing."""
+    """Read build_dir/classify.md as a fallback if meta.mode is missing.
+
+    Per-subject ``classify.md`` prompts define their own output schema; current
+    schema is a JSON object ``{"mode": "easy|hard", "level": ..., "reason": ...}``
+    (possibly inside a fenced ```json``` block). Older builds emitted a plain
+    ``VERDICT: <EASY|HARD>`` line — fall back to that for compatibility with
+    archived builds.
+    """
     p = ctx.build_dir / "classify.md"
     if not p.is_file():
         return None
     text = p.read_text(encoding="utf-8")
+
+    # Try JSON first (current schema). Tolerant of fenced blocks + leading prose.
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            parsed = json.loads(text[start:end + 1])
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            mode = parsed.get("mode")
+            if isinstance(mode, str) and mode.lower() in ("easy", "hard"):
+                return mode.lower()
+
+    # Legacy fallback — `VERDICT: <EASY|HARD>` line.
     for line in text.splitlines():
         line = line.strip()
         if line.upper().startswith("VERDICT:"):

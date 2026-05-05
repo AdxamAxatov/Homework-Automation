@@ -17,7 +17,7 @@ Find and read the corresponding textbook pages. Extract:
 
 ## Step 2: Classify difficulty
 
-Read `06-prompts/geometriya-g7-ru/classify.md` and apply it to the extracted content.
+Read `classify.md` and apply it to the extracted content.
 
 Two checks:
 1. Is the topic inherently complex? (requires chaining prior concepts, involves formal proof, multi-step theorem) → **HARD**
@@ -28,8 +28,8 @@ Output: EASY or HARD + one sentence why.
 
 ## Step 3: Load the right prompt
 
-- If EASY → read `06-prompts/geometriya-g7-ru/preview-easy.md`
-- If HARD → read `06-prompts/geometriya-g7-ru/preview-hard.md`
+- If EASY → read `preview-easy.md`
+- If HARD → read `preview-hard.md`
 
 ## Step 4: Build
 
