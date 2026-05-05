@@ -16,6 +16,7 @@ Thumbs.db
 # Local artifacts (textbook-derived content; per-machine state)
 textbooks/
 builds/
+builds-*/
 db/
 extracted/
 

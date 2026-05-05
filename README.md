@@ -140,6 +140,43 @@ Prints a status report for a build: `queued` / `building` / `ready` / `error`, t
 
 ---
 
+## Running parallel builds (multiple windows)
+
+The autopilot uses a single SQLite DB and a single `builds/` directory by default, so naively running two builds at once will collide on filesystem paths and DB writes. To run N builds in parallel safely, give each window its own DB + builds directory.
+
+**Easy way — `--worker N`:** one flag derives both for you.
+
+```powershell
+# Window 1
+python -m autopilot.drive build --worker 1
+
+# Window 2
+python -m autopilot.drive build --worker 2
+
+# ... and so on; pass distinct N per window
+```
+
+That sets:
+- `--builds-dir Automation/builds-w<N>/`
+- `--db Automation/db/hw-w<N>.sqlite`
+
+Each window's outputs land in its own directory; their autopilot DB writes don't contend. The NETS server mints unique `HW-YYYYMMDD-NNN` ids for each push, so no collision there either.
+
+**Manual way:** if you want different paths than the worker convention, pass `--builds-dir` and `--db` explicitly:
+
+```powershell
+python -m autopilot.drive build --builds-dir D:\runs\jobA --db D:\runs\jobA.sqlite ...
+```
+
+Or set `NETS_BUILDS_DIR` env var per window.
+
+**Caveats for parallel runs:**
+- **Anthropic rate limits** — N concurrent Opus 4.7 sessions multiply the per-account TPM. If you start hitting `429` retries, scale back N.
+- **NETS server load** — N concurrent POST + PUT calls. Should be fine for `N ≤ 10` against a normally-running server.
+- **Don't run two windows with the same `--worker N`.** Same N → same paths → collision.
+
+---
+
 ## Build directory layout
 
 Each build creates a directory under `builds/` named `HW-YYYYMMDD-NNN`. This is the **autopilot's local sequence**, separate from the NETS server's homework IDs.

@@ -160,7 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_phase_runs_progress ON phase_runs(homework_id, la
 -- Seed the reference tables
 -- ============================================================================
 
-INSERT OR IGNORE INTO languages(code) VALUES ('uz'), ('ru');
+INSERT OR IGNORE INTO languages(code) VALUES ('uz'), ('ru'), ('en');
 
 INSERT OR IGNORE INTO grades(id, label) VALUES
     (1,'1'),(2,'2'),(3,'3'),(4,'4'),(5,'5'),

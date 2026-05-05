@@ -395,6 +395,15 @@ def _interactive_collect(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def cmd_build(args: argparse.Namespace) -> int:
+    # ---- Per-worker isolation (convenience for parallel windows) ----
+    # `--worker N` derives both --builds-dir and --db when not explicitly set,
+    # so each window gets its own filesystem + DB lane.
+    if args.worker is not None:
+        if args.builds_dir is None:
+            args.builds_dir = AUTOMATION_ROOT / f"builds-w{args.worker}"
+        if args.db is None:
+            args.db = AUTOMATION_ROOT / "db" / f"hw-w{args.worker}.sqlite"
+
     # Drop into interactive collection if the core fields aren't all set.
     if not (args.subject and args.grade and args.language and args.lesson_ref and args.pdf):
         try:
@@ -407,6 +416,14 @@ def cmd_build(args: argparse.Namespace) -> int:
     if not pdf_path.exists():
         print(f"error: PDF not found: {pdf_path}", file=sys.stderr)
         return 2
+
+    # Resolve the final builds-dir: --builds-dir flag → NETS_BUILDS_DIR env → default
+    builds_root = (
+        Path(args.builds_dir).resolve() if args.builds_dir
+        else Path(os.environ["NETS_BUILDS_DIR"]).resolve() if os.environ.get("NETS_BUILDS_DIR")
+        else BUILDS_ROOT
+    )
+    builds_root.mkdir(parents=True, exist_ok=True)
 
     # Pipeline registry self-test before any DB writes — catches missing prompts early.
     errs = pipelines.selftest()
@@ -446,7 +463,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         mode=mode,
     )
 
-    build_dir = BUILDS_ROOT / homework_id
+    build_dir = builds_root / homework_id
     build_dir.mkdir(parents=True, exist_ok=True)
     log = runlog.RunLog(build_dir)
     log.event(
@@ -599,6 +616,13 @@ def main(argv: list[str] | None = None) -> int:
     pb.add_argument("--model", default=None,
                     help="Claude CLI model id (default claude-opus-4-7)")
     pb.add_argument("--db", type=Path, default=None, help="override homework_db.sqlite path")
+    pb.add_argument("--builds-dir", type=Path, default=None,
+                    help="override the directory where build dirs are created (default: Automation/builds/). "
+                         "Use distinct values for parallel runs to avoid filesystem collisions.")
+    pb.add_argument("--worker", type=int, default=None,
+                    help="convenience flag for parallel windows: sets --builds-dir to "
+                         "Automation/builds-w<N>/ and --db to Automation/db/hw-w<N>.sqlite "
+                         "(only when those flags aren't already set). Pass distinct N per window.")
     pb.add_argument("--dry-run", action="store_true",
                     help="record DB rows + create folders but invoke no agents")
     pb.add_argument("--planner", action="store_true",
