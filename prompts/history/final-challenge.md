@@ -40,7 +40,7 @@ Total damage across 5 questions = 100 HP = full boss defeat for G5–G8.
 Every question carries inline tags: `[Bloom: LX | PISA: Reading/Creative Thinking LX | Skill: ... | Damage: -XX HP | Standard: UZ-TARIX-G-TOPIC-B-##]`
 
 **Must include in the set of 5:**
-- ≥1 **primary source analysis** question (quote the source, ask 2-part: principle + causal consequence). This is the signature History Boss item — from `family-ijtimoiy-fanlar.md`.
+- ≥1 **primary source analysis** question (quote the source, ask 2-part: principle + causal consequence). This is the signature History Boss item
 - ≥1 **causal-framework application** (apply the framework named in Preview Panel 2 to explain a specific lesson event).
 - ≥1 **evaluation/synthesis** question at the Hard tier (judge success/failure of a figure or decision with evidence from multiple sources).
 
