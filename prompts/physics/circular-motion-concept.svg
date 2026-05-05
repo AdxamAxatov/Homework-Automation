@@ -1,0 +1,8 @@
+<svg width="280" height="170" viewBox="0 0 280 170" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="85" cy="85" r="45" fill="none" stroke="#1f77b4" stroke-width="3"/>
+  <path d="M130 85 A45 45 0 0 1 85 130" fill="none" stroke="#d62728" stroke-width="4"/>
+  <polygon points="82,38 90,38 86,25" fill="#d62728"/>
+  <text x="145" y="65" font-size="16">Bir to'liq aylanish - T</text>
+  <text x="145" y="95" font-size="16">1 sekunddagi aylanishlar - v</text>
+  <text x="145" y="125" font-size="16">v = 1 / T</text>
+</svg>
