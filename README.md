@@ -31,7 +31,7 @@ You give the autopilot three things:
 It does the rest:
 
 1. **Spawns Claude Code** in headless mode with a master prompt.
-2. The Claude session **reads the per-subject playbook** from `Homework-builder/server/prompts/`, **opens the PDF**, locates the lesson, and **decides EASY or HARD** difficulty (only for subjects that need classification — others have their mode pre-set).
+2. The Claude session **reads the per-subject playbook** from `Automation/prompts/<subject>/`, **opens the PDF**, locates the lesson, and **decides EASY or HARD** difficulty (only for subjects that need classification — others have their mode pre-set).
 3. It **walks the chosen pipeline** (5 to 9 phases depending on subject and mode), generating preview panels, flashcards, memory-sprint quizzes, game-break content, real-life scenarios, a consolidation phase, a boss fight, and a reflection.
 4. It **assembles all phase outputs into one `content.json`** that conforms to `CONTRACTS.md §1` — the binding schema for NETS homework content.
 5. The autopilot **picks the JSON back up**, **POSTs to NETS** to mint a homework ID, then **PUTs the content** into it.
@@ -48,7 +48,7 @@ A typical Opus 4.7 build takes **8–15 minutes** for hard subjects.
 - **Python 3.10+** — the autopilot uses only the Python standard library, so there's no `pip install` step.
 - **Claude Code CLI** installed and on your `PATH`. Verify with `claude --version`.
 - **A running NETS server** reachable at the URL you'll point at (default `http://sigmaai.local:8000`).
-- **The Homework-builder repo cloned** at `../Homework-builder/` relative to this folder. The autopilot reads per-subject prompts and the content schema from there. See [Path dependency](#path-dependency-on-homework-builder).
+- **The Homework-builder repo cloned** at `../Homework-builder/` relative to this folder. The autopilot reads `CONTRACTS.md` from there. (Per-subject prompts now live locally inside `Automation/prompts/` — they no longer require the Homework-builder source tree.) See [Path dependency](#path-dependency-on-homework-builder).
 - **A textbook PDF** placed in a local `textbooks/` directory (this directory is gitignored — you populate it on each machine).
 
 ### Running a build
@@ -81,7 +81,7 @@ python -m autopilot.drive build `
 You run drive.py
   ├── (interactive prompts fill any missing args)
   ├── creates Automation/builds/HW-YYYYMMDD-NNN/   (autopilot's local id sequence)
-  ├── composes a master prompt (~9 KB) → runner-prompt.md
+  ├── composes a thin master prompt (~3 KB; routes Claude to the per-subject prompts) → runner-prompt.md
   └── spawns: claude --print --output-format json
                      --dangerously-skip-permissions
                      --model claude-opus-4-7
@@ -94,7 +94,7 @@ You run drive.py
        Claude writes extraction.md (working notes)                            │ Single
        ↓                                                                      │ Claude
        (if subject NEEDS_CLASSIFY)                                            │ session,
-       Claude reads classify.md → writes verdict to classify.md               │ ~10 min
+       Claude reads classify.md → writes JSON verdict to classify.md          │ ~10 min
        ↓                                                                      │ on Opus
        Claude walks each phase prompt:                                        │ 4.7
          preview → flashcards → memory_sprint → game_breaks                   │
@@ -157,7 +157,7 @@ python -m autopilot.drive build --worker 2
 ```
 
 That sets:
-- `--builds-dir Automation/builds-w<N>/`
+- `--builds-dir Automation/builds/builds-w<N>/`
 - `--db Automation/db/hw-w<N>.sqlite`
 
 Each window's outputs land in its own directory; their autopilot DB writes don't contend. The NETS server mints unique `HW-YYYYMMDD-NNN` ids for each push, so no collision there either.
@@ -183,9 +183,9 @@ Each build creates a directory under `builds/` named `HW-YYYYMMDD-NNN`. This is 
 
 ```
 builds/HW-20260504-002/
-├── runner-prompt.md     ← The master prompt fed to Claude (~9 KB). Useful for repro.
+├── runner-prompt.md     ← The master prompt fed to Claude (~3 KB). Useful for repro.
 ├── extraction.md        ← Claude's working notes from reading the PDF.
-├── classify.md          ← Claude's verdict: VERDICT: EASY|HARD + one-sentence reason.
+├── classify.md          ← Claude's verdict — JSON: {"mode":"easy|hard","level":"...","reason":"..."}.
 ├── phase-1-preview.md   ← Per-phase scratch markdown (5–9 of these).
 ├── phase-2-flashcards.md
 ├── ...
@@ -274,20 +274,23 @@ The full registry lives in `autopilot/pipelines.py`.
 
 ## Path dependency on Homework-builder
 
-The autopilot reads two things from the parent NETS-server source tree:
+The autopilot reads one thing from the parent NETS-server source tree:
 
-1. `Homework-builder/server/prompts/<subject>/*.md` — the per-subject playbooks (`instruction.md`, `flow.md`, `classify.md`, plus 5–9 per-phase prompts) that tell Claude how to build each phase.
-2. `Homework-builder/CONTRACTS.md` — the schema that `content.json` must conform to.
+- `Homework-builder/CONTRACTS.md` — the schema that `content.json` must conform to.
+
+Per-subject prompts (`instruction.md`, `flow.md`, `classify.md`, plus 5–9 per-phase prompts per subject) live **locally** inside `Automation/prompts/<subject>/` and are versioned alongside the autopilot itself.
 
 The path constants in `autopilot/drive.py` and `autopilot/pipelines.py` resolve via:
 
 ```python
-REPO_ROOT = Path(__file__).resolve().parents[2]   # = Homework-builder/
+REPO_ROOT       = Path(__file__).resolve().parents[2]   # = Homework-builder/   (for CONTRACTS.md)
+AUTOMATION_ROOT = Path(__file__).resolve().parents[1]   # = Homework-builder/Automation/
+PROMPTS_ROOT    = AUTOMATION_ROOT / "prompts"           # = Automation/prompts/
 ```
 
 This assumes the autopilot lives at `Homework-builder/Automation/autopilot/`.
 
-**If you clone this repo to a different location** (no `Homework-builder/` parent), the path constants will resolve to wrong directories and the build will fail at startup with `pipeline registry errors`. To run the autopilot somewhere else, you'd need to either:
+**If you clone this repo to a different location** (no `Homework-builder/` parent), `CONTRACTS.md` won't resolve and the build will fail at startup. To run the autopilot somewhere else, you'd need to either:
 - Keep the autopilot inside `Homework-builder/Automation/` (the supported layout).
 - Or patch the path constants to read from a `NETS_REPO_ROOT` env var (small change, not yet implemented).
 
@@ -308,7 +311,7 @@ These directories are gitignored — they're per-machine local state:
 
 ## Architecture notes
 
-**One Claude invocation per build.** Earlier designs fanned out across 14 worker spawns + validators. The current design composes one master prompt per build (~9 KB) and runs `claude --print --output-format json --dangerously-skip-permissions --model <model>` exactly once. The agent does extraction, classification, all phases, and assembly inside that single call.
+**One Claude invocation per build.** Earlier designs fanned out across 14 worker spawns + validators. The current design composes one thin master prompt per build (~3 KB; it routes Claude to the per-subject prompts and defines the success/failure markers, nothing else) and runs `claude --print --output-format json --dangerously-skip-permissions --model <model>` exactly once. The agent does extraction, classification, all phases, and assembly inside that single call.
 
 **Two SQLite databases, intentionally separate:**
 
@@ -335,7 +338,7 @@ These have **independent `HW-YYYYMMDD-NNN` ID sequences**. The autopilot's HW-id
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `pipeline registry errors (orchestrator refuses to start)` | Path constants don't resolve to a Homework-builder root with `server/prompts/` | Verify the autopilot lives at `Homework-builder/Automation/autopilot/` |
+| `pipeline registry errors (orchestrator refuses to start)` | Path constants don't resolve — usually `Automation/prompts/<subject>/` is missing files, or the autopilot isn't at `Homework-builder/Automation/autopilot/` | Verify the autopilot lives at `Homework-builder/Automation/autopilot/`; run `python -m autopilot.pipelines` to see exactly which prompt files are missing |
 | `error: 'claude' CLI not found on PATH` | Claude Code CLI not installed | Install Claude Code; verify `claude --version` |
 | `error: PDF not found: ...` | Textbook path is wrong | Use the interactive picker (no `--pdf` flag) to list real options |
 | Build completes but `metrics.json` shows `is_error: true` | Claude internal failure mid-build | Check `runner.log` for the envelope; retry the build |

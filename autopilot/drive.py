@@ -400,7 +400,7 @@ def cmd_build(args: argparse.Namespace) -> int:
     # so each window gets its own filesystem + DB lane.
     if args.worker is not None:
         if args.builds_dir is None:
-            args.builds_dir = AUTOMATION_ROOT / f"builds-w{args.worker}"
+            args.builds_dir = BUILDS_ROOT / f"builds-w{args.worker}"
         if args.db is None:
             args.db = AUTOMATION_ROOT / "db" / f"hw-w{args.worker}.sqlite"
 
